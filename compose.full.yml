@@ -1,0 +1,158 @@
+version: '3.1'
+
+services:
+  zoo:
+    image: zookeeper
+    restart: on-failure
+    hostname: zoo
+    container_name: zoo
+    ports:
+      - 2181:2181
+    environment:
+      ZOO_MY_ID: 1
+      ZOO_SERVERS: server.1=0.0.0.0:2888:3888;2181
+    networks:
+      - rideshare
+
+  rmq:
+    image: rabbitmq:3.6.16
+    restart: on-failure
+    container_name: rmq
+    hostname: rmq
+    networks:
+      - rideshare
+
+  flask-orchestrator:
+    build:
+      context: ./platform/dbaas/orchestrator
+      dockerfile: Dockerfile
+    container_name: flask-orchestrator
+    image: flask-orchestrator:latest
+    ports:
+      - 5000:5000
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      FLASK_APP: app.py
+      PYTHONUNBUFFERED: "0"
+      USERS_DB_WRITE_URL: http://users:80/api/v1/db/write
+      DBAAS_NETWORK: rideshare_dbaas
+    restart: on-failure
+    command: sh -c "sleep 20 && flask run --host=0.0.0.0"
+    depends_on:
+      - zoo
+      - rmq
+    networks:
+      - rideshare
+
+  master:
+    build:
+      context: ./platform/dbaas/worker
+      dockerfile: Dockerfile
+    container_name: worker1000
+    image: worker1000:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      PYTHONUNBUFFERED: "0"
+      container_name: worker1000
+      DBAAS_NETWORK: rideshare_dbaas
+    command: sh -c "sleep 25 && python3 -u app.py"
+    pid: host
+    depends_on:
+      - zoo
+      - rmq
+      - flask-orchestrator
+    networks:
+      - rideshare
+
+  slave:
+    build:
+      context: ./platform/dbaas/worker
+      dockerfile: Dockerfile
+    container_name: worker1001
+    image: worker1001:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      PYTHONUNBUFFERED: "0"
+      container_name: worker1001
+      DBAAS_NETWORK: rideshare_dbaas
+    command: sh -c "sleep 30 && python3 -u app.py"
+    pid: host
+    depends_on:
+      - zoo
+      - rmq
+      - flask-orchestrator
+    networks:
+      - rideshare
+
+  flask-rides:
+    build:
+      context: ./services/rides
+      dockerfile: Dockerfile
+    container_name: flask-rides
+    image: flask-rides:latest
+    environment:
+      FLASK_APP: app.py
+      RIDES_REQUEST_ORIGIN: http://rides
+      RIDES_USERS_URL: http://users:80/api/v1/users
+      RIDES_DB_WRITE_URL: http://flask-orchestrator:5000/api/v1/db/write
+      RIDES_DB_READ_URL: http://flask-orchestrator:5000/api/v1/db/read
+    command: flask run --host=0.0.0.0
+    depends_on:
+      - flask-orchestrator
+    networks:
+      rideshare:
+        aliases:
+          - flask-app-rides
+
+  rides:
+    build:
+      context: ./services/rides
+      dockerfile: Dockerfile.nginx
+    container_name: rides
+    image: rides:latest
+    depends_on:
+      - flask-rides
+    ports:
+      - 80:80
+    networks:
+      - rideshare
+
+  flask-users:
+    build:
+      context: ./services/users
+      dockerfile: Dockerfile
+    container_name: flask-users
+    image: flask-users:latest
+    environment:
+      FLASK_APP: app.py
+      USERS_DB_WRITE_URL: http://flask-orchestrator:5000/api/v1/db/write
+      USERS_DB_READ_URL: http://flask-orchestrator:5000/api/v1/db/read
+      USERS_RIDES_CLEAR_URL: http://rides:80/api/v1/db/clear
+      USERS_RIDES_WRITE_URL: http://rides:80/api/v1/db/write
+    command: flask run --host=0.0.0.0
+    depends_on:
+      - flask-orchestrator
+    networks:
+      rideshare:
+        aliases:
+          - flask-app-users
+
+  users:
+    build:
+      context: ./services/users
+      dockerfile: Dockerfile.nginx
+    container_name: users
+    image: users:latest
+    depends_on:
+      - flask-users
+    ports:
+      - 8080:80
+    networks:
+      - rideshare
+
+networks:
+  rideshare:
+    name: rideshare_dbaas

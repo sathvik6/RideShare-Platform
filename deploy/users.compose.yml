@@ -1,0 +1,39 @@
+version: '3.1'
+
+services:
+
+  nginx-users:
+    build:
+     context: ../services/users
+     dockerfile: Dockerfile.nginx
+    container_name: users
+    image: users:latest
+    depends_on:
+    - flask-users
+    ports:
+    - 80:80
+    networks:
+    - backend
+  
+  flask-users:
+   build:
+    context: ../services/users
+    dockerfile: Dockerfile
+   container_name: flask-users
+   image: flask-users:latest 
+   ports:
+   - 8081:5000
+   environment:
+   - FLASK_APP=app.py
+   - USERS_DB_WRITE_URL=http://flask-orchestrator:5000/api/v1/db/write
+   - USERS_DB_READ_URL=http://flask-orchestrator:5000/api/v1/db/read
+   - USERS_RIDES_CLEAR_URL=http://rides:80/api/v1/db/clear
+   - USERS_RIDES_WRITE_URL=http://rides:80/api/v1/db/write
+   command: flask run --host=0.0.0.0
+   networks:
+    backend:
+     aliases:
+       - flask-app-users
+
+networks:
+ backend:

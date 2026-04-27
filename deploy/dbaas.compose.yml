@@ -1,0 +1,92 @@
+version: '3.1'
+
+services:
+  zoo:
+    image: zookeeper
+    restart: on-failure
+    hostname: zoo
+    container_name: zoo
+    ports:
+      - 2181:2181
+    environment:
+      ZOO_MY_ID: 1
+      ZOO_SERVERS: server.1=0.0.0.0:2888:3888;2181
+    networks:
+      - dbaas
+
+  rmq:
+    image: rabbitmq:3.6.16
+    restart: on-failure
+    container_name: rmq
+    hostname: rmq
+    networks:
+      - dbaas
+
+  flask-orchestrator:
+    build:
+      context: ../platform/dbaas/orchestrator
+      dockerfile: Dockerfile
+    container_name: flask-orchestrator
+    image: flask-orchestrator:latest
+    ports:
+      - 80:5000
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      FLASK_APP: app.py
+      PYTHONUNBUFFERED: "0"
+      USERS_DB_WRITE_URL: http://users:80/api/v1/db/write
+      DBAAS_NETWORK: rideshare_dbaas
+    restart: on-failure
+    command: sh -c "sleep 20 && flask run --host=0.0.0.0"
+    depends_on:
+      - zoo
+      - rmq
+    networks:
+      - dbaas
+
+  master:
+    build:
+      context: ../platform/dbaas/worker
+      dockerfile: Dockerfile
+    container_name: worker1000
+    image: worker1000:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      PYTHONUNBUFFERED: "0"
+      container_name: worker1000
+      DBAAS_NETWORK: rideshare_dbaas
+    command: sh -c "sleep 25 && python3 -u app.py"
+    pid: host
+    depends_on:
+      - zoo
+      - rmq
+      - flask-orchestrator
+    networks:
+      - dbaas
+
+  slave:
+    build:
+      context: ../platform/dbaas/worker
+      dockerfile: Dockerfile
+    container_name: worker1001
+    image: worker1001:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      PYTHONUNBUFFERED: "0"
+      container_name: worker1001
+      DBAAS_NETWORK: rideshare_dbaas
+    command: sh -c "sleep 30 && python3 -u app.py"
+    pid: host
+    depends_on:
+      - zoo
+      - rmq
+      - flask-orchestrator
+    networks:
+      - dbaas
+
+networks:
+  dbaas:
+    name: rideshare_dbaas
