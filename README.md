@@ -2,10 +2,6 @@
 
 Cloud rideshare application built with Python, Flask, Docker, Zookeeper, RabbitMQ, and a fault-tolerant DBaaS layer.
 
-## What this repo contains
-
-This repository is the cleaned final version of the college project. It keeps the production-like architecture and removes the phase-by-phase assignment structure.
-
 ## Layout
 
 - `services/rides` for the rides API and its container build files
